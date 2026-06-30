@@ -38,8 +38,9 @@ jobs:
       - name: Verify azuredeploy.json is in sync with Bicep source
         run: |
           bicep build bicep/main.bicep --outfile /tmp/azuredeploy.json
-          # Ignore metadata._generator (tool version drift between local and CI Bicep).
-          norm() { jq -S 'del(.metadata._generator)' "$1"; }
+          # Strip metadata._generator at every level (nested modules included) so
+          # Bicep tool-version drift (version + templateHash) doesn't fail the check.
+          norm() { jq -S 'walk(if type == "object" then del(._generator) else . end)' "$1"; }
           if ! diff -u <(norm /tmp/azuredeploy.json) <(norm azuredeploy.json); then
             echo "::error::azuredeploy.json is out of date. Run: bicep build bicep/main.bicep --outfile azuredeploy.json"
             exit 1
