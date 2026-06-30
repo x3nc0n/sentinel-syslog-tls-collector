@@ -24,9 +24,9 @@ jobs:
 
       - name: Install Bicep CLI
         run: |
-          curl -Lo bicep https://github.com/Azure/bicep/releases/latest/download/bicep-linux-x64
-          chmod +x bicep
-          sudo mv bicep /usr/local/bin/bicep
+          curl -Lo "$RUNNER_TEMP/bicep" https://github.com/Azure/bicep/releases/latest/download/bicep-linux-x64
+          chmod +x "$RUNNER_TEMP/bicep"
+          sudo mv "$RUNNER_TEMP/bicep" /usr/local/bin/bicep
           bicep --version
 
       - name: Bicep lint
@@ -38,7 +38,9 @@ jobs:
       - name: Verify azuredeploy.json is in sync with Bicep source
         run: |
           bicep build bicep/main.bicep --outfile /tmp/azuredeploy.json
-          if ! diff -q <(jq -S . /tmp/azuredeploy.json) <(jq -S . azuredeploy.json) > /dev/null; then
+          # Ignore metadata._generator (tool version drift between local and CI Bicep).
+          norm() { jq -S 'del(.metadata._generator)' "$1"; }
+          if ! diff -u <(norm /tmp/azuredeploy.json) <(norm azuredeploy.json); then
             echo "::error::azuredeploy.json is out of date. Run: bicep build bicep/main.bicep --outfile azuredeploy.json"
             exit 1
           fi
