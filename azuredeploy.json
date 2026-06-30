@@ -1,0 +1,1699 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.42.1.51946",
+      "templateHash": "7657309327143397027"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus2",
+      "metadata": {
+        "description": "Azure region for all resources."
+      }
+    },
+    "baseName": {
+      "type": "string",
+      "defaultValue": "sc-syslog",
+      "metadata": {
+        "description": "Base name prefix shared across all resource names."
+      }
+    },
+    "vmSku": {
+      "type": "string",
+      "defaultValue": "Standard_D2s_v5",
+      "metadata": {
+        "description": "VMSS VM SKU."
+      }
+    },
+    "instanceCountMin": {
+      "type": "int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "Minimum VMSS instance count (also used as initial capacity)."
+      }
+    },
+    "instanceCountMax": {
+      "type": "int",
+      "defaultValue": 3,
+      "metadata": {
+        "description": "Maximum VMSS instance count."
+      }
+    },
+    "enableTls": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable TLS syslog listener (RFC 5425 port 6514)."
+      }
+    },
+    "tlsPort": {
+      "type": "int",
+      "defaultValue": 6514,
+      "metadata": {
+        "description": "TLS syslog port."
+      }
+    },
+    "enablePlaintext": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable plain-text syslog listener (port 514 TCP + UDP)."
+      }
+    },
+    "plaintextPort": {
+      "type": "int",
+      "defaultValue": 514,
+      "metadata": {
+        "description": "Plain-text syslog port."
+      }
+    },
+    "allowedSyslogSourceCidrs": {
+      "type": "array",
+      "defaultValue": [
+        "10.0.0.0/16"
+      ],
+      "metadata": {
+        "description": "Allowed source CIDRs for all syslog NSG rules."
+      }
+    },
+    "loadBalancerPublic": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "True = public Standard LB with a PIP. False = internal LB, no PIP."
+      }
+    },
+    "createWorkspace": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Create a new Log Analytics workspace."
+      }
+    },
+    "workspaceName": {
+      "type": "string",
+      "defaultValue": "log-sc-syslog-collector",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace (new or existing)."
+      }
+    },
+    "existingWorkspaceId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Full resource ID of an existing workspace. Required only when createWorkspace = false."
+      }
+    },
+    "enableSentinel": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Onboard Microsoft Sentinel on the workspace."
+      }
+    },
+    "vnetAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.0/16",
+      "metadata": {
+        "description": "VNet address space."
+      }
+    },
+    "subnetAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.0/24",
+      "metadata": {
+        "description": "Subnet address prefix (must fall within vnetAddressPrefix)."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "workload": "syslog-collector",
+        "env": "prod",
+        "managedBy": "bicep",
+        "deployedBy": "squad"
+      },
+      "metadata": {
+        "description": "Resource tags applied to every resource."
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "azureuser",
+      "metadata": {
+        "description": "Admin username for VMSS instances."
+      }
+    },
+    "adminSshPublicKey": {
+      "type": "string",
+      "metadata": {
+        "description": "SSH public key for the admin user (not a secret — public material)."
+      }
+    },
+    "syslogCaCertPem": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "PEM-encoded CA certificate. When non-empty, injected into Key Vault at deploy time (single-shot TLS deploy). Empty = manual upload."
+      }
+    },
+    "syslogServerCertPem": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "PEM-encoded server certificate. When non-empty, injected into Key Vault at deploy time. Empty = manual upload."
+      }
+    },
+    "syslogServerKeyPem": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "PEM-encoded server private key. When non-empty, injected into Key Vault at deploy time. Empty = manual upload."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "identity",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "baseName": {
+            "value": "[parameters('baseName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "2997588206437500059"
+            }
+          },
+          "parameters": {
+            "baseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Base name prefix for all resources."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "apiVersion": "2023-01-31",
+              "name": "[format('{0}-uami', parameters('baseName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]"
+            }
+          ],
+          "outputs": {
+            "uamiId": {
+              "type": "string",
+              "metadata": {
+                "description": "Full resource ID of the UAMI."
+              },
+              "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-uami', parameters('baseName')))]"
+            },
+            "uamiPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Principal (object) ID of the UAMI — used for RBAC assignments."
+              },
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-uami', parameters('baseName'))), '2023-01-31').principalId]"
+            },
+            "uamiClientId": {
+              "type": "string",
+              "metadata": {
+                "description": "Client ID of the UAMI — used in AMA extension settings."
+              },
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-uami', parameters('baseName'))), '2023-01-31').clientId]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "network",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "baseName": {
+            "value": "[parameters('baseName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "vnetAddressPrefix": {
+            "value": "[parameters('vnetAddressPrefix')]"
+          },
+          "subnetAddressPrefix": {
+            "value": "[parameters('subnetAddressPrefix')]"
+          },
+          "allowedSyslogSourceCidrs": {
+            "value": "[parameters('allowedSyslogSourceCidrs')]"
+          },
+          "enableTls": {
+            "value": "[parameters('enableTls')]"
+          },
+          "tlsPort": {
+            "value": "[parameters('tlsPort')]"
+          },
+          "enablePlaintext": {
+            "value": "[parameters('enablePlaintext')]"
+          },
+          "plaintextPort": {
+            "value": "[parameters('plaintextPort')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "12302307445328374242"
+            }
+          },
+          "parameters": {
+            "baseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Base name prefix for all resources."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "vnetAddressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "VNet address space CIDR."
+              }
+            },
+            "subnetAddressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Subnet address prefix CIDR."
+              }
+            },
+            "allowedSyslogSourceCidrs": {
+              "type": "array",
+              "metadata": {
+                "description": "Source CIDRs allowed to send syslog. Applied to every syslog NSG rule."
+              }
+            },
+            "enableTls": {
+              "type": "bool",
+              "metadata": {
+                "description": "Enable TLS syslog listener rule (port tlsPort)."
+              }
+            },
+            "tlsPort": {
+              "type": "int",
+              "metadata": {
+                "description": "TLS syslog port (default 6514 per RFC 5425)."
+              }
+            },
+            "enablePlaintext": {
+              "type": "bool",
+              "metadata": {
+                "description": "Enable plaintext syslog listener rules (port plaintextPort)."
+              }
+            },
+            "plaintextPort": {
+              "type": "int",
+              "metadata": {
+                "description": "Plaintext syslog port (default 514)."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags."
+              }
+            }
+          },
+          "variables": {
+            "tlsRule": "[if(parameters('enableTls'), createArray(createObject('name', 'Allow-Syslog-TLS', 'properties', createObject('description', 'Allow TLS syslog ingestion (RFC 5425) from authorised sources.', 'priority', 100, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourceAddressPrefixes', parameters('allowedSyslogSourceCidrs'), 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', string(parameters('tlsPort'))))), createArray())]",
+            "plaintextRule": "[if(parameters('enablePlaintext'), createArray(createObject('name', 'Allow-Syslog-Plain-TCP', 'properties', createObject('description', 'Allow plain-text TCP syslog from authorised sources (legacy fallback).', 'priority', 200, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourceAddressPrefixes', parameters('allowedSyslogSourceCidrs'), 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', string(parameters('plaintextPort')))), createObject('name', 'Allow-Syslog-Plain-UDP', 'properties', createObject('description', 'Allow plain-text UDP syslog from authorised sources (legacy fallback).', 'priority', 210, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Udp', 'sourceAddressPrefixes', parameters('allowedSyslogSourceCidrs'), 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', string(parameters('plaintextPort'))))), createArray())]",
+            "denyAllInbound": [
+              {
+                "name": "Deny-All-Other-Inbound",
+                "properties": {
+                  "description": "Explicit deny for all other inbound traffic.",
+                  "priority": 4000,
+                  "direction": "Inbound",
+                  "access": "Deny",
+                  "protocol": "*",
+                  "sourceAddressPrefix": "*",
+                  "sourcePortRange": "*",
+                  "destinationAddressPrefix": "*",
+                  "destinationPortRange": "*"
+                }
+              }
+            ],
+            "securityRules": "[concat(variables('tlsRule'), variables('plaintextRule'), variables('denyAllInbound'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-natgw-pip', parameters('baseName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static",
+                "publicIPAddressVersion": "IPv4"
+              }
+            },
+            {
+              "type": "Microsoft.Network/natGateways",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-natgw', parameters('baseName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard"
+              },
+              "properties": {
+                "idleTimeoutInMinutes": 4,
+                "publicIpAddresses": [
+                  {
+                    "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-natgw-pip', parameters('baseName')))]"
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-natgw-pip', parameters('baseName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-nsg', parameters('baseName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "securityRules": "[variables('securityRules')]"
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-vnet', parameters('baseName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "[parameters('vnetAddressPrefix')]"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "default",
+                    "properties": {
+                      "addressPrefix": "[parameters('subnetAddressPrefix')]",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('baseName')))]"
+                      },
+                      "natGateway": {
+                        "id": "[resourceId('Microsoft.Network/natGateways', format('{0}-natgw', parameters('baseName')))]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/natGateways', format('{0}-natgw', parameters('baseName')))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('baseName')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the default subnet."
+              },
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('baseName'))), '2024-05-01').subnets[0].id]"
+            },
+            "nsgId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the NSG."
+              },
+              "value": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('baseName')))]"
+            },
+            "vnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the VNet."
+              },
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('baseName')))]"
+            },
+            "egressPublicIp": {
+              "type": "string",
+              "metadata": {
+                "description": "NAT Gateway outbound public IP — the source IP all VMSS instances appear as for egress."
+              },
+              "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-natgw-pip', parameters('baseName'))), '2024-05-01').ipAddress]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "workspace",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "createWorkspace": {
+            "value": "[parameters('createWorkspace')]"
+          },
+          "workspaceName": {
+            "value": "[parameters('workspaceName')]"
+          },
+          "existingWorkspaceId": {
+            "value": "[parameters('existingWorkspaceId')]"
+          },
+          "enableSentinel": {
+            "value": "[parameters('enableSentinel')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "17335684829950047977"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "createWorkspace": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "When true, a new Log Analytics workspace is created. When false, an existing workspace is referenced via existingWorkspaceId."
+              }
+            },
+            "workspaceName": {
+              "type": "string",
+              "defaultValue": "log-sc-syslog-collector",
+              "metadata": {
+                "description": "Name of the new workspace. Also used to derive the Sentinel solution name."
+              }
+            },
+            "existingWorkspaceId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Full resource ID of an existing Log Analytics workspace. Required when createWorkspace = false."
+              }
+            },
+            "enableSentinel": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "When true, Microsoft Sentinel (SecurityInsights) is onboarded on the workspace."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags."
+              }
+            }
+          },
+          "variables": {
+            "resolvedWorkspaceId": "[if(parameters('createWorkspace'), resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), parameters('existingWorkspaceId'))]",
+            "resolvedWorkspaceName": "[if(parameters('createWorkspace'), parameters('workspaceName'), last(split(parameters('existingWorkspaceId'), '/')))]"
+          },
+          "resources": [
+            {
+              "condition": "[parameters('createWorkspace')]",
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('workspaceName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "sku": {
+                  "name": "PerGB2018"
+                },
+                "retentionInDays": 90,
+                "features": {
+                  "enableLogAccessUsingOnlyResourcePermissions": true
+                },
+                "publicNetworkAccessForIngestion": "Enabled",
+                "publicNetworkAccessForQuery": "Enabled"
+              }
+            },
+            {
+              "condition": "[parameters('enableSentinel')]",
+              "type": "Microsoft.OperationsManagement/solutions",
+              "apiVersion": "2015-11-01-preview",
+              "name": "[format('SecurityInsights({0})', variables('resolvedWorkspaceName'))]",
+              "location": "[parameters('location')]",
+              "plan": {
+                "name": "[format('SecurityInsights({0})', variables('resolvedWorkspaceName'))]",
+                "publisher": "Microsoft",
+                "product": "OMSGallery/SecurityInsights",
+                "promotionCode": ""
+              },
+              "properties": {
+                "workspaceResourceId": "[variables('resolvedWorkspaceId')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "workspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the Log Analytics workspace (new or existing)."
+              },
+              "value": "[variables('resolvedWorkspaceId')]"
+            },
+            "workspaceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Log Analytics workspace."
+              },
+              "value": "[variables('resolvedWorkspaceName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "loadbalancer",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "baseName": {
+            "value": "[parameters('baseName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "loadBalancerPublic": {
+            "value": "[parameters('loadBalancerPublic')]"
+          },
+          "subnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.subnetId.value]"
+          },
+          "enableTls": {
+            "value": "[parameters('enableTls')]"
+          },
+          "tlsPort": {
+            "value": "[parameters('tlsPort')]"
+          },
+          "enablePlaintext": {
+            "value": "[parameters('enablePlaintext')]"
+          },
+          "plaintextPort": {
+            "value": "[parameters('plaintextPort')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "5558732294791084865"
+            }
+          },
+          "parameters": {
+            "baseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Base name prefix for all resources."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "loadBalancerPublic": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "When true, a Standard public IP is created and attached to the LB frontend. When false, an internal frontend is used (private IP from the subnet)."
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Subnet resource ID — required for internal LB frontend."
+              }
+            },
+            "enableTls": {
+              "type": "bool",
+              "metadata": {
+                "description": "Enable TLS syslog LB rule (TCP tlsPort)."
+              }
+            },
+            "tlsPort": {
+              "type": "int",
+              "metadata": {
+                "description": "TLS syslog port."
+              }
+            },
+            "enablePlaintext": {
+              "type": "bool",
+              "metadata": {
+                "description": "Enable plaintext syslog LB rules (TCP + UDP plaintextPort)."
+              }
+            },
+            "plaintextPort": {
+              "type": "int",
+              "metadata": {
+                "description": "Plaintext syslog port."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags."
+              }
+            }
+          },
+          "variables": {
+            "lbName": "[format('{0}-lb', parameters('baseName'))]",
+            "backendPoolName": "backend",
+            "frontendName": "frontend",
+            "probeName": "probe-primary",
+            "probePort": "[if(parameters('enableTls'), parameters('tlsPort'), parameters('plaintextPort'))]",
+            "tlsLbRule": "[if(parameters('enableTls'), createArray(createObject('name', 'rule-syslog-tls', 'properties', createObject('protocol', 'Tcp', 'frontendPort', parameters('tlsPort'), 'backendPort', parameters('tlsPort'), 'enableFloatingIP', false(), 'idleTimeoutInMinutes', 4, 'frontendIPConfiguration', createObject('id', resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('lbName'), variables('frontendName'))), 'backendAddressPool', createObject('id', resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('lbName'), variables('backendPoolName'))), 'probe', createObject('id', resourceId('Microsoft.Network/loadBalancers/probes', variables('lbName'), variables('probeName')))))), createArray())]",
+            "plaintextTcpLbRule": "[if(parameters('enablePlaintext'), createArray(createObject('name', 'rule-syslog-plain-tcp', 'properties', createObject('protocol', 'Tcp', 'frontendPort', parameters('plaintextPort'), 'backendPort', parameters('plaintextPort'), 'enableFloatingIP', false(), 'idleTimeoutInMinutes', 4, 'frontendIPConfiguration', createObject('id', resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('lbName'), variables('frontendName'))), 'backendAddressPool', createObject('id', resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('lbName'), variables('backendPoolName'))), 'probe', createObject('id', resourceId('Microsoft.Network/loadBalancers/probes', variables('lbName'), variables('probeName')))))), createArray())]",
+            "plaintextUdpLbRule": "[if(parameters('enablePlaintext'), createArray(createObject('name', 'rule-syslog-plain-udp', 'properties', createObject('protocol', 'Udp', 'frontendPort', parameters('plaintextPort'), 'backendPort', parameters('plaintextPort'), 'enableFloatingIP', false(), 'idleTimeoutInMinutes', 4, 'frontendIPConfiguration', createObject('id', resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('lbName'), variables('frontendName'))), 'backendAddressPool', createObject('id', resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('lbName'), variables('backendPoolName'))), 'probe', createObject('id', resourceId('Microsoft.Network/loadBalancers/probes', variables('lbName'), variables('probeName')))))), createArray())]",
+            "lbRules": "[concat(variables('tlsLbRule'), variables('plaintextTcpLbRule'), variables('plaintextUdpLbRule'))]",
+            "probes": "[if(or(parameters('enableTls'), parameters('enablePlaintext')), createArray(createObject('name', variables('probeName'), 'properties', createObject('protocol', 'Tcp', 'port', variables('probePort'), 'intervalInSeconds', 15, 'numberOfProbes', 2))), createArray())]"
+          },
+          "resources": [
+            {
+              "condition": "[parameters('loadBalancerPublic')]",
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-pip', parameters('baseName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static",
+                "publicIPAddressVersion": "IPv4",
+                "dnsSettings": {
+                  "domainNameLabel": "[replace(parameters('baseName'), '-', '')]"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Network/loadBalancers",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('lbName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+              },
+              "properties": {
+                "frontendIPConfigurations": [
+                  {
+                    "name": "[variables('frontendName')]",
+                    "properties": "[if(parameters('loadBalancerPublic'), createObject('publicIPAddress', createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('baseName'))))), createObject('subnet', createObject('id', parameters('subnetId')), 'privateIPAllocationMethod', 'Dynamic'))]"
+                  }
+                ],
+                "backendAddressPools": [
+                  {
+                    "name": "[variables('backendPoolName')]"
+                  }
+                ],
+                "probes": "[variables('probes')]",
+                "loadBalancingRules": "[variables('lbRules')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('baseName')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "lbId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the load balancer."
+              },
+              "value": "[resourceId('Microsoft.Network/loadBalancers', variables('lbName'))]"
+            },
+            "backendPoolId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the backend address pool."
+              },
+              "value": "[reference(resourceId('Microsoft.Network/loadBalancers', variables('lbName')), '2024-05-01').backendAddressPools[0].id]"
+            },
+            "lbName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the load balancer (used by VMSS IP config reference)."
+              },
+              "value": "[variables('lbName')]"
+            },
+            "publicIpAddress": {
+              "type": "string",
+              "metadata": {
+                "description": "Public IP address (empty string when loadBalancerPublic = false)."
+              },
+              "value": "[if(parameters('loadBalancerPublic'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-pip', parameters('baseName'))), '2024-05-01').ipAddress, '')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'network')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "keyvault",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "baseName": {
+            "value": "[parameters('baseName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "amaUamiPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.uamiPrincipalId.value]"
+          },
+          "syslogCaCertPem": {
+            "value": "[parameters('syslogCaCertPem')]"
+          },
+          "syslogServerCertPem": {
+            "value": "[parameters('syslogServerCertPem')]"
+          },
+          "syslogServerKeyPem": {
+            "value": "[parameters('syslogServerKeyPem')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "4281376853746538595"
+            }
+          },
+          "parameters": {
+            "baseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Naming prefix for resources, e.g. sc-syslog."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region where the Key Vault will be created."
+              }
+            },
+            "amaUamiPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Object ID (principalId) of the AMA / VMSS User-Assigned Managed Identity."
+              }
+            },
+            "tenantId": {
+              "type": "string",
+              "defaultValue": "[subscription().tenantId]",
+              "metadata": {
+                "description": "AAD tenant ID. Defaults to the current subscription tenant."
+              }
+            },
+            "syslogCaCertPem": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "PEM-encoded CA certificate. When non-empty, created as KV secret syslog-ca-cert at deploy time (single-shot deploy path). Empty = manual-upload path (backward compatible)."
+              }
+            },
+            "syslogServerCertPem": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "PEM-encoded server certificate. When non-empty, created as KV secret syslog-server-cert at deploy time. Empty = manual-upload path."
+              }
+            },
+            "syslogServerKeyPem": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "PEM-encoded server private key. When non-empty, created as KV secret syslog-server-key at deploy time. Empty = manual-upload path."
+              }
+            }
+          },
+          "variables": {
+            "kvName": "[take(format('kv-{0}-{1}', parameters('baseName'), uniqueString(parameters('baseName'), parameters('location'))), 24)]",
+            "kvSecretsUserRoleDefId": "4633458b-17de-408a-b874-0445c86b69e6"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.KeyVault/vaults",
+              "apiVersion": "2023-07-01",
+              "name": "[variables('kvName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "sku": {
+                  "family": "A",
+                  "name": "standard"
+                },
+                "tenantId": "[parameters('tenantId')]",
+                "enableRbacAuthorization": true,
+                "enableSoftDelete": true,
+                "softDeleteRetentionInDays": 90,
+                "enablePurgeProtection": true,
+                "publicNetworkAccess": "Enabled",
+                "networkAcls": {
+                  "defaultAction": "Allow",
+                  "bypass": "AzureServices",
+                  "ipRules": [],
+                  "virtualNetworkRules": []
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.KeyVault/vaults', variables('kvName'))]",
+              "name": "[guid(resourceId('Microsoft.KeyVault/vaults', variables('kvName')), parameters('amaUamiPrincipalId'), variables('kvSecretsUserRoleDefId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('kvSecretsUserRoleDefId'))]",
+                "principalId": "[parameters('amaUamiPrincipalId')]",
+                "principalType": "ServicePrincipal",
+                "description": "AMA UAMI — read syslog TLS secrets"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('kvName'))]"
+              ]
+            },
+            {
+              "condition": "[not(empty(parameters('syslogCaCertPem')))]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-07-01",
+              "name": "[format('{0}/{1}', variables('kvName'), 'syslog-ca-cert')]",
+              "properties": {
+                "value": "[parameters('syslogCaCertPem')]",
+                "contentType": "application/x-pem-file"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('kvName'))]"
+              ]
+            },
+            {
+              "condition": "[not(empty(parameters('syslogServerCertPem')))]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-07-01",
+              "name": "[format('{0}/{1}', variables('kvName'), 'syslog-server-cert')]",
+              "properties": {
+                "value": "[parameters('syslogServerCertPem')]",
+                "contentType": "application/x-pem-file"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('kvName'))]"
+              ]
+            },
+            {
+              "condition": "[not(empty(parameters('syslogServerKeyPem')))]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-07-01",
+              "name": "[format('{0}/{1}', variables('kvName'), 'syslog-server-key')]",
+              "properties": {
+                "value": "[parameters('syslogServerKeyPem')]",
+                "contentType": "application/x-pem-file"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('kvName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "keyVaultId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.KeyVault/vaults', variables('kvName'))]"
+            },
+            "keyVaultName": {
+              "type": "string",
+              "value": "[variables('kvName')]"
+            },
+            "keyVaultUri": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('kvName')), '2023-07-01').vaultUri]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'identity')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "vmss",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "baseName": {
+            "value": "[parameters('baseName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "vmSku": {
+            "value": "[parameters('vmSku')]"
+          },
+          "instanceCountMin": {
+            "value": "[parameters('instanceCountMin')]"
+          },
+          "subnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.subnetId.value]"
+          },
+          "lbBackendPoolId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'loadbalancer'), '2025-04-01').outputs.backendPoolId.value]"
+          },
+          "uamiId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.uamiId.value]"
+          },
+          "uamiClientId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.uamiClientId.value]"
+          },
+          "keyVaultName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault'), '2025-04-01').outputs.keyVaultName.value]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminSshPublicKey": {
+            "value": "[parameters('adminSshPublicKey')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "14855356499988223243"
+            }
+          },
+          "parameters": {
+            "baseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Base name prefix for all resources."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "vmSku": {
+              "type": "string",
+              "defaultValue": "Standard_D2s_v5",
+              "metadata": {
+                "description": "VM SKU for VMSS instances."
+              }
+            },
+            "instanceCountMin": {
+              "type": "int",
+              "defaultValue": 1,
+              "metadata": {
+                "description": "Initial (minimum) instance count."
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the subnet to attach VMSS NICs to."
+              }
+            },
+            "lbBackendPoolId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the LB backend address pool."
+              }
+            },
+            "uamiId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the User-Assigned Managed Identity (for AMA)."
+              }
+            },
+            "uamiClientId": {
+              "type": "string",
+              "metadata": {
+                "description": "Client ID of the User-Assigned Managed Identity — injected into cloud-init for IMDS cert fetch."
+              }
+            },
+            "keyVaultName": {
+              "type": "string",
+              "metadata": {
+                "description": "Key Vault name (e.g. kv-sc-syslog-abc12345) — injected into cloud-init for IMDS cert fetch."
+              }
+            },
+            "adminUsername": {
+              "type": "string",
+              "defaultValue": "azureuser",
+              "metadata": {
+                "description": "Admin username for the Linux OS profile."
+              }
+            },
+            "adminSshPublicKey": {
+              "type": "string",
+              "metadata": {
+                "description": "SSH public key for the admin user. Not a secret — public key material."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags."
+              }
+            }
+          },
+          "variables": {
+            "$fxv#0": "#cloud-config\n# ─────────────────────────────────────────────────────────────────────────────\n# cloud-init for Syslog-VMSS-AMA collector\n# Replaces the upstream runtime download of Forwarder_AMA_installer.py\n# (deviation-log item 5).\n#\n# What this does:\n#   1. Installs rsyslog + rsyslog-gnutls\n#   2. Writes /etc/rsyslog.d/50-tls-listener.conf (TLS config, port 6514)\n#   3. Writes /usr/local/bin/fetch-kv-certs.sh (IMDS cert-fetch script)\n#   4. Creates /etc/rsyslog.d/certs/ with secure permissions\n#   5. Fetches cert material from Key Vault via IMDS managed-identity token\n#   6. Restarts rsyslog\n#\n# ── Certificate Delivery (SINGLE MECHANISM) ──────────────────────────────────\n#\n# The KeyVaultForLinux VM extension is NOT used — it writes opaque filenames\n# that conflict with the canonical names rsyslog expects.  The IMDS fetch\n# below is the ONLY cert delivery path.\n#\n# KV_NAME and UAMI_CLIENT_ID are templated into this file by Bicep at compile\n# time (bicep/modules/vmss.bicep uses loadTextContent + replace + base64).\n# Placeholder tokens __KV_NAME__ and __UAMI_CLIENT_ID__ are replaced with the\n# actual Key Vault name and UAMI client ID derived from the deployed resources.\n#\n# Secret names in Key Vault → canonical file paths on disk:\n#   syslog-ca-cert     → /etc/rsyslog.d/certs/ca.pem         (0644)\n#   syslog-server-cert → /etc/rsyslog.d/certs/server.pem     (0644)\n#   syslog-server-key  → /etc/rsyslog.d/certs/server-key.pem (0600)\n#\n# ─────────────────────────────────────────────────────────────────────────────\n\npackage_update: true\npackage_upgrade: false\n\npackages:\n  - rsyslog\n  - rsyslog-gnutls\n  # python3 and curl are pre-installed on Ubuntu 22.04; listed for clarity.\n  # azure-cli is NOT required — the fetch script uses raw IMDS + curl only.\n\nwrite_files:\n  # ── rsyslog TLS listener config ────────────────────────────────────────────\n  - path: /etc/rsyslog.d/50-tls-listener.conf\n    owner: root:root\n    permissions: '0644'\n    content: |\n      # rsyslog TLS listener — RFC 5425 port 6514, GnuTLS driver\n      # Canonical source: bicep/scripts/rsyslog-tls.conf\n      # See docs/tls-setup.md for cert generation and rotation instructions.\n      #\n      # AuthMode:\n      #   \"anon\"      — TLS encryption only, no client cert required (DEFAULT)\n      #   \"x509/name\" — mutual TLS; change AuthMode and uncomment PermittedPeers\n      module(load=\"imtcp\"\n             StreamDriver.Name=\"gtls\"\n             StreamDriver.Mode=\"1\"\n             StreamDriver.AuthMode=\"anon\")\n      # mTLS: change above to AuthMode=\"x509/name\" and uncomment:\n      # $ActionSendStreamDriverPermittedPeer *.yourdomain.example.com\n\n      global(\n        DefaultNetstreamDriver=\"gtls\"\n        DefaultNetstreamDriverCAFile=\"/etc/rsyslog.d/certs/ca.pem\"\n        DefaultNetstreamDriverCertFile=\"/etc/rsyslog.d/certs/server.pem\"\n        DefaultNetstreamDriverKeyFile=\"/etc/rsyslog.d/certs/server-key.pem\"\n      )\n\n      # RFC 5425 TLS listener\n      input(type=\"imtcp\" port=\"6514\" name=\"tls-syslog\")\n\n      # Events flow to the systemd journal automatically (Ubuntu 22.04 default).\n      # AMA reads from the journal — no additional forward action needed.\n\n      # OPTIONAL plaintext UDP fallback — DISABLED\n      # Uncomment only for legacy senders; keep NSG source locked down.\n      # module(load=\"imudp\")\n      # input(type=\"imudp\" port=\"514\" name=\"plain-udp\")\n\n  # ── IMDS cert-fetch script ─────────────────────────────────────────────────\n  - path: /usr/local/bin/fetch-kv-certs.sh\n    owner: root:root\n    permissions: '0700'\n    content: |\n      #!/usr/bin/env bash\n      # ─────────────────────────────────────────────────────────────────────\n      # fetch-kv-certs.sh — Retrieve syslog TLS certs from Azure Key Vault\n      # using the VM's User-Assigned Managed Identity via IMDS.\n      #\n      # KV_NAME and UAMI_CLIENT_ID are baked in by Bicep at deploy time via\n      # loadTextContent + replace + base64 in bicep/modules/vmss.bicep.\n      # Placeholders __KV_NAME__ and __UAMI_CLIENT_ID__ are substituted before\n      # this file reaches the VM — the values below are final resolved values.\n      # ─────────────────────────────────────────────────────────────────────\n      set -euo pipefail\n\n      KV_NAME=\"__KV_NAME__\"\n      UAMI_CLIENT_ID=\"__UAMI_CLIENT_ID__\"\n\n      CERT_DIR=\"/etc/rsyslog.d/certs\"\n      mkdir -p \"$CERT_DIR\"\n\n      # Acquire OAuth token from IMDS for Key Vault audience\n      TOKEN=$(curl -sf \\\n        -H \"Metadata: true\" \\\n        \"http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net&client_id=${UAMI_CLIENT_ID}\" \\\n        | python3 -c \"import sys,json; print(json.load(sys.stdin)['access_token'])\")\n\n      KV_URI=\"https://${KV_NAME}.vault.azure.net/secrets\"\n\n      fetch_secret() {\n        local secret_name=\"$1\" dest_path=\"$2\"\n        curl -sf \\\n          -H \"Authorization: Bearer ${TOKEN}\" \\\n          \"${KV_URI}/${secret_name}?api-version=7.4\" \\\n          | python3 -c \"import sys,json; sys.stdout.write(json.load(sys.stdin)['value'])\" \\\n          > \"${dest_path}\"\n        echo \"  Wrote ${dest_path}\"\n      }\n\n      echo \"Fetching TLS cert material from Key Vault: ${KV_NAME}\"\n      # Secret names → canonical file paths (must match rsyslog-tls.conf references)\n      fetch_secret \"syslog-ca-cert\"     \"${CERT_DIR}/ca.pem\"\n      fetch_secret \"syslog-server-cert\" \"${CERT_DIR}/server.pem\"\n      fetch_secret \"syslog-server-key\"  \"${CERT_DIR}/server-key.pem\"\n\n      # Lock down private key; certs world-readable by root\n      chmod 600  \"${CERT_DIR}/server-key.pem\"\n      chmod 644  \"${CERT_DIR}/ca.pem\" \"${CERT_DIR}/server.pem\"\n      chown -R root:root \"${CERT_DIR}\"\n\n      echo \"Certificate fetch complete.\"\n\nruncmd:\n  # ── 1. Create cert directory ──────────────────────────────────────────────\n  - mkdir -p /etc/rsyslog.d/certs\n  - chmod 700 /etc/rsyslog.d/certs\n  - chown root:root /etc/rsyslog.d/certs\n\n  # ── 2. Fetch TLS cert material from Key Vault via IMDS ───────────────────\n  # KV_NAME and UAMI_CLIENT_ID were templated into fetch-kv-certs.sh by Bicep.\n  - /usr/local/bin/fetch-kv-certs.sh\n\n  # ── 3. Validate cert files exist before rsyslog starts ───────────────────\n  - |\n    MISSING=0\n    for f in /etc/rsyslog.d/certs/ca.pem \\\n              /etc/rsyslog.d/certs/server.pem \\\n              /etc/rsyslog.d/certs/server-key.pem; do\n      if [ ! -f \"$f\" ]; then\n        echo \"WARNING: ${f} not found — rsyslog TLS will not start.\" >&2\n        MISSING=1\n      fi\n    done\n    # Do not hard-fail here; let rsyslog report the config error clearly.\n\n  # ── 4. Enforce cert directory permissions ────────────────────────────────\n  - chmod 600 /etc/rsyslog.d/certs/server-key.pem 2>/dev/null || true\n  - chmod 644 /etc/rsyslog.d/certs/ca.pem /etc/rsyslog.d/certs/server.pem 2>/dev/null || true\n  - chown -R root:root /etc/rsyslog.d/certs\n\n  # ── 5. Validate rsyslog config syntax, then enable and start ─────────────\n  - rsyslogd -N1\n  - systemctl enable rsyslog\n  - systemctl restart rsyslog",
+            "computerNamePrefix": "[take(parameters('baseName'), 9)]",
+            "cloudInitTemplated": "[replace(replace(variables('$fxv#0'), '__KV_NAME__', parameters('keyVaultName')), '__UAMI_CLIENT_ID__', parameters('uamiClientId'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Compute/virtualMachineScaleSets",
+              "apiVersion": "2024-07-01",
+              "name": "[format('{0}-vmss', parameters('baseName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "[parameters('vmSku')]",
+                "tier": "Standard",
+                "capacity": "[parameters('instanceCountMin')]"
+              },
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('uamiId'))]": {}
+                }
+              },
+              "properties": {
+                "orchestrationMode": "Uniform",
+                "upgradePolicy": {
+                  "mode": "Automatic"
+                },
+                "virtualMachineProfile": {
+                  "storageProfile": {
+                    "imageReference": {
+                      "publisher": "Canonical",
+                      "offer": "ubuntu-24_04-lts",
+                      "sku": "server",
+                      "version": "latest"
+                    },
+                    "osDisk": {
+                      "createOption": "FromImage",
+                      "caching": "ReadWrite",
+                      "managedDisk": {
+                        "storageAccountType": "Premium_LRS"
+                      }
+                    }
+                  },
+                  "osProfile": {
+                    "computerNamePrefix": "[variables('computerNamePrefix')]",
+                    "adminUsername": "[parameters('adminUsername')]",
+                    "customData": "[base64(variables('cloudInitTemplated'))]",
+                    "linuxConfiguration": {
+                      "disablePasswordAuthentication": true,
+                      "ssh": {
+                        "publicKeys": [
+                          {
+                            "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
+                            "keyData": "[parameters('adminSshPublicKey')]"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "networkProfile": {
+                    "networkInterfaceConfigurations": [
+                      {
+                        "name": "[format('{0}-nic', parameters('baseName'))]",
+                        "properties": {
+                          "primary": true,
+                          "ipConfigurations": [
+                            {
+                              "name": "ipconfig1",
+                              "properties": {
+                                "subnet": {
+                                  "id": "[parameters('subnetId')]"
+                                },
+                                "loadBalancerBackendAddressPools": [
+                                  {
+                                    "id": "[parameters('lbBackendPoolId')]"
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "extensionProfile": {
+                    "extensions": [
+                      {
+                        "name": "AzureMonitorLinuxAgent",
+                        "properties": {
+                          "publisher": "Microsoft.Azure.Monitor",
+                          "type": "AzureMonitorLinuxAgent",
+                          "typeHandlerVersion": "1.33",
+                          "autoUpgradeMinorVersion": true,
+                          "enableAutomaticUpgrade": true,
+                          "settings": {
+                            "authentication": {
+                              "managedIdentity": {
+                                "identifier-name": "mi_res_id",
+                                "identifier-value": "[parameters('uamiId')]"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "vmssId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the VMSS."
+              },
+              "value": "[resourceId('Microsoft.Compute/virtualMachineScaleSets', format('{0}-vmss', parameters('baseName')))]"
+            },
+            "vmssName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the VMSS (used by DCR association scope)."
+              },
+              "value": "[format('{0}-vmss', parameters('baseName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'identity')]",
+        "[resourceId('Microsoft.Resources/deployments', 'keyvault')]",
+        "[resourceId('Microsoft.Resources/deployments', 'loadbalancer')]",
+        "[resourceId('Microsoft.Resources/deployments', 'network')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "dcr",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "baseName": {
+            "value": "[parameters('baseName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "workspaceId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'workspace'), '2025-04-01').outputs.workspaceId.value]"
+          },
+          "vmssName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vmss'), '2025-04-01').outputs.vmssName.value]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "3695151740539624214"
+            }
+          },
+          "parameters": {
+            "baseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Base name prefix for all resources."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "workspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the Log Analytics workspace destination."
+              }
+            },
+            "vmssName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the VMSS to associate this DCR with."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Insights/dataCollectionRules",
+              "apiVersion": "2023-03-11",
+              "name": "[format('{0}-dcr', parameters('baseName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "Linux",
+              "properties": {
+                "description": "Collect syslog events and forward to Log Analytics / Sentinel.",
+                "dataSources": {
+                  "syslog": [
+                    {
+                      "name": "syslogDataSource",
+                      "streams": [
+                        "Microsoft-Syslog"
+                      ],
+                      "facilityNames": [
+                        "auth",
+                        "authpriv",
+                        "cron",
+                        "daemon",
+                        "kern",
+                        "local0",
+                        "local1",
+                        "local2",
+                        "local3",
+                        "local4",
+                        "local5",
+                        "local6",
+                        "local7",
+                        "syslog",
+                        "user",
+                        "uucp"
+                      ],
+                      "logLevels": [
+                        "Info",
+                        "Notice",
+                        "Warning",
+                        "Error",
+                        "Critical",
+                        "Alert",
+                        "Emergency"
+                      ]
+                    }
+                  ]
+                },
+                "destinations": {
+                  "logAnalytics": [
+                    {
+                      "workspaceResourceId": "[parameters('workspaceId')]",
+                      "name": "workspace"
+                    }
+                  ]
+                },
+                "dataFlows": [
+                  {
+                    "streams": [
+                      "Microsoft-Syslog"
+                    ],
+                    "destinations": [
+                      "workspace"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Insights/dataCollectionRuleAssociations",
+              "apiVersion": "2023-03-11",
+              "scope": "[resourceId('Microsoft.Compute/virtualMachineScaleSets', parameters('vmssName'))]",
+              "name": "[format('DCRa-{0}', parameters('baseName'))]",
+              "properties": {
+                "description": "Binds the syslog DCR to the collector VMSS.",
+                "dataCollectionRuleId": "[resourceId('Microsoft.Insights/dataCollectionRules', format('{0}-dcr', parameters('baseName')))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Insights/dataCollectionRules', format('{0}-dcr', parameters('baseName')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "dcrId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the Data Collection Rule."
+              },
+              "value": "[resourceId('Microsoft.Insights/dataCollectionRules', format('{0}-dcr', parameters('baseName')))]"
+            },
+            "dcrName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Data Collection Rule."
+              },
+              "value": "[format('{0}-dcr', parameters('baseName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'vmss')]",
+        "[resourceId('Microsoft.Resources/deployments', 'workspace')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "autoscale",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "baseName": {
+            "value": "[parameters('baseName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "vmssId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vmss'), '2025-04-01').outputs.vmssId.value]"
+          },
+          "instanceCountMin": {
+            "value": "[parameters('instanceCountMin')]"
+          },
+          "instanceCountMax": {
+            "value": "[parameters('instanceCountMax')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "5108888554881690356"
+            }
+          },
+          "parameters": {
+            "baseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Base name prefix for all resources."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "vmssId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the VMSS to autoscale."
+              }
+            },
+            "instanceCountMin": {
+              "type": "int",
+              "defaultValue": 1,
+              "metadata": {
+                "description": "Minimum instance count."
+              }
+            },
+            "instanceCountMax": {
+              "type": "int",
+              "defaultValue": 3,
+              "metadata": {
+                "description": "Maximum instance count."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Insights/autoscalesettings",
+              "apiVersion": "2022-10-01",
+              "name": "[format('{0}-autoscale', parameters('baseName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "enabled": true,
+                "name": "[format('{0}-autoscale', parameters('baseName'))]",
+                "targetResourceUri": "[parameters('vmssId')]",
+                "profiles": [
+                  {
+                    "name": "default",
+                    "capacity": {
+                      "minimum": "[string(parameters('instanceCountMin'))]",
+                      "maximum": "[string(parameters('instanceCountMax'))]",
+                      "default": "[string(parameters('instanceCountMin'))]"
+                    },
+                    "rules": [
+                      {
+                        "metricTrigger": {
+                          "metricName": "Percentage CPU",
+                          "metricResourceUri": "[parameters('vmssId')]",
+                          "timeGrain": "PT1M",
+                          "statistic": "Average",
+                          "timeWindow": "PT5M",
+                          "timeAggregation": "Average",
+                          "operator": "GreaterThan",
+                          "threshold": 75
+                        },
+                        "scaleAction": {
+                          "direction": "Increase",
+                          "type": "ChangeCount",
+                          "value": "1",
+                          "cooldown": "PT5M"
+                        }
+                      },
+                      {
+                        "metricTrigger": {
+                          "metricName": "Percentage CPU",
+                          "metricResourceUri": "[parameters('vmssId')]",
+                          "timeGrain": "PT1M",
+                          "statistic": "Average",
+                          "timeWindow": "PT5M",
+                          "timeAggregation": "Average",
+                          "operator": "LessThan",
+                          "threshold": 25
+                        },
+                        "scaleAction": {
+                          "direction": "Decrease",
+                          "type": "ChangeCount",
+                          "value": "1",
+                          "cooldown": "PT5M"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'vmss')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "vmssId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the VMSS."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vmss'), '2025-04-01').outputs.vmssId.value]"
+    },
+    "dcrId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the DCR."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'dcr'), '2025-04-01').outputs.dcrId.value]"
+    },
+    "workspaceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the Log Analytics workspace."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'workspace'), '2025-04-01').outputs.workspaceId.value]"
+    },
+    "uamiId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the UAMI."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.uamiId.value]"
+    },
+    "lbPublicIp": {
+      "type": "string",
+      "metadata": {
+        "description": "Public IP address (empty when loadBalancerPublic = false)."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'loadbalancer'), '2025-04-01').outputs.publicIpAddress.value]"
+    },
+    "egressPublicIp": {
+      "type": "string",
+      "metadata": {
+        "description": "NAT Gateway egress public IP — the source IP VMSS instances use for outbound traffic."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.egressPublicIp.value]"
+    },
+    "keyVaultUri": {
+      "type": "string",
+      "metadata": {
+        "description": "Key Vault URI (use when configuring additional VMSS extensions or cert rotation)."
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault'), '2025-04-01').outputs.keyVaultUri.value]"
+    }
+  }
+}

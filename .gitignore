@@ -1,0 +1,14 @@
+# Bicep build artifacts (azuredeploy.json at root is committed intentionally;
+# module-level compiled JSON is not)
+bicep/**/*.json
+
+# Local TLS cert material + deploy SSH keys (NEVER commit)
+.certs/
+*.pem
+*.key
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

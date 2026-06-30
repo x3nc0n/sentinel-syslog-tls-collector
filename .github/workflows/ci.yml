@@ -1,0 +1,45 @@
+# CI — offline template validation only.
+#
+# This public repository intentionally has NO deployment workflow and NO Azure
+# credentials. This job runs entirely offline: it lints and builds the Bicep
+# template to catch errors. It never authenticates to or deploys into any
+# Azure subscription.
+
+name: Infra CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-build:
+    name: Bicep Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Bicep CLI
+        run: |
+          curl -Lo bicep https://github.com/Azure/bicep/releases/latest/download/bicep-linux-x64
+          chmod +x bicep
+          sudo mv bicep /usr/local/bin/bicep
+          bicep --version
+
+      - name: Bicep lint
+        run: bicep lint bicep/main.bicep
+
+      - name: Bicep build (ARM emit)
+        run: bicep build bicep/main.bicep --outfile /dev/null
+
+      - name: Verify azuredeploy.json is in sync with Bicep source
+        run: |
+          bicep build bicep/main.bicep --outfile /tmp/azuredeploy.json
+          if ! diff -q <(jq -S . /tmp/azuredeploy.json) <(jq -S . azuredeploy.json) > /dev/null; then
+            echo "::error::azuredeploy.json is out of date. Run: bicep build bicep/main.bicep --outfile azuredeploy.json"
+            exit 1
+          fi
+          echo "azuredeploy.json is in sync."

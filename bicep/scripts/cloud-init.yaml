@@ -1,0 +1,165 @@
+#cloud-config
+# ─────────────────────────────────────────────────────────────────────────────
+# cloud-init for Syslog-VMSS-AMA collector
+# Replaces the upstream runtime download of Forwarder_AMA_installer.py
+# (deviation-log item 5).
+#
+# What this does:
+#   1. Installs rsyslog + rsyslog-gnutls
+#   2. Writes /etc/rsyslog.d/50-tls-listener.conf (TLS config, port 6514)
+#   3. Writes /usr/local/bin/fetch-kv-certs.sh (IMDS cert-fetch script)
+#   4. Creates /etc/rsyslog.d/certs/ with secure permissions
+#   5. Fetches cert material from Key Vault via IMDS managed-identity token
+#   6. Restarts rsyslog
+#
+# ── Certificate Delivery (SINGLE MECHANISM) ──────────────────────────────────
+#
+# The KeyVaultForLinux VM extension is NOT used — it writes opaque filenames
+# that conflict with the canonical names rsyslog expects.  The IMDS fetch
+# below is the ONLY cert delivery path.
+#
+# KV_NAME and UAMI_CLIENT_ID are templated into this file by Bicep at compile
+# time (bicep/modules/vmss.bicep uses loadTextContent + replace + base64).
+# Placeholder tokens __KV_NAME__ and __UAMI_CLIENT_ID__ are replaced with the
+# actual Key Vault name and UAMI client ID derived from the deployed resources.
+#
+# Secret names in Key Vault → canonical file paths on disk:
+#   syslog-ca-cert     → /etc/rsyslog.d/certs/ca.pem         (0644)
+#   syslog-server-cert → /etc/rsyslog.d/certs/server.pem     (0644)
+#   syslog-server-key  → /etc/rsyslog.d/certs/server-key.pem (0600)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - rsyslog
+  - rsyslog-gnutls
+  # python3 and curl are pre-installed on Ubuntu 22.04; listed for clarity.
+  # azure-cli is NOT required — the fetch script uses raw IMDS + curl only.
+
+write_files:
+  # ── rsyslog TLS listener config ────────────────────────────────────────────
+  - path: /etc/rsyslog.d/50-tls-listener.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      # rsyslog TLS listener — RFC 5425 port 6514, GnuTLS driver
+      # Canonical source: bicep/scripts/rsyslog-tls.conf
+      # See docs/tls-setup.md for cert generation and rotation instructions.
+      #
+      # AuthMode:
+      #   "anon"      — TLS encryption only, no client cert required (DEFAULT)
+      #   "x509/name" — mutual TLS; change AuthMode and uncomment PermittedPeers
+      module(load="imtcp"
+             StreamDriver.Name="gtls"
+             StreamDriver.Mode="1"
+             StreamDriver.AuthMode="anon")
+      # mTLS: change above to AuthMode="x509/name" and uncomment:
+      # $ActionSendStreamDriverPermittedPeer *.yourdomain.example.com
+
+      global(
+        DefaultNetstreamDriver="gtls"
+        DefaultNetstreamDriverCAFile="/etc/rsyslog.d/certs/ca.pem"
+        DefaultNetstreamDriverCertFile="/etc/rsyslog.d/certs/server.pem"
+        DefaultNetstreamDriverKeyFile="/etc/rsyslog.d/certs/server-key.pem"
+      )
+
+      # RFC 5425 TLS listener
+      input(type="imtcp" port="6514" name="tls-syslog")
+
+      # Events flow to the systemd journal automatically (Ubuntu 22.04 default).
+      # AMA reads from the journal — no additional forward action needed.
+
+      # OPTIONAL plaintext UDP fallback — DISABLED
+      # Uncomment only for legacy senders; keep NSG source locked down.
+      # module(load="imudp")
+      # input(type="imudp" port="514" name="plain-udp")
+
+  # ── IMDS cert-fetch script ─────────────────────────────────────────────────
+  - path: /usr/local/bin/fetch-kv-certs.sh
+    owner: root:root
+    permissions: '0700'
+    content: |
+      #!/usr/bin/env bash
+      # ─────────────────────────────────────────────────────────────────────
+      # fetch-kv-certs.sh — Retrieve syslog TLS certs from Azure Key Vault
+      # using the VM's User-Assigned Managed Identity via IMDS.
+      #
+      # KV_NAME and UAMI_CLIENT_ID are baked in by Bicep at deploy time via
+      # loadTextContent + replace + base64 in bicep/modules/vmss.bicep.
+      # Placeholders __KV_NAME__ and __UAMI_CLIENT_ID__ are substituted before
+      # this file reaches the VM — the values below are final resolved values.
+      # ─────────────────────────────────────────────────────────────────────
+      set -euo pipefail
+
+      KV_NAME="__KV_NAME__"
+      UAMI_CLIENT_ID="__UAMI_CLIENT_ID__"
+
+      CERT_DIR="/etc/rsyslog.d/certs"
+      mkdir -p "$CERT_DIR"
+
+      # Acquire OAuth token from IMDS for Key Vault audience
+      TOKEN=$(curl -sf \
+        -H "Metadata: true" \
+        "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net&client_id=${UAMI_CLIENT_ID}" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+      KV_URI="https://${KV_NAME}.vault.azure.net/secrets"
+
+      fetch_secret() {
+        local secret_name="$1" dest_path="$2"
+        curl -sf \
+          -H "Authorization: Bearer ${TOKEN}" \
+          "${KV_URI}/${secret_name}?api-version=7.4" \
+          | python3 -c "import sys,json; sys.stdout.write(json.load(sys.stdin)['value'])" \
+          > "${dest_path}"
+        echo "  Wrote ${dest_path}"
+      }
+
+      echo "Fetching TLS cert material from Key Vault: ${KV_NAME}"
+      # Secret names → canonical file paths (must match rsyslog-tls.conf references)
+      fetch_secret "syslog-ca-cert"     "${CERT_DIR}/ca.pem"
+      fetch_secret "syslog-server-cert" "${CERT_DIR}/server.pem"
+      fetch_secret "syslog-server-key"  "${CERT_DIR}/server-key.pem"
+
+      # Lock down private key; certs world-readable by root
+      chmod 600  "${CERT_DIR}/server-key.pem"
+      chmod 644  "${CERT_DIR}/ca.pem" "${CERT_DIR}/server.pem"
+      chown -R root:root "${CERT_DIR}"
+
+      echo "Certificate fetch complete."
+
+runcmd:
+  # ── 1. Create cert directory ──────────────────────────────────────────────
+  - mkdir -p /etc/rsyslog.d/certs
+  - chmod 700 /etc/rsyslog.d/certs
+  - chown root:root /etc/rsyslog.d/certs
+
+  # ── 2. Fetch TLS cert material from Key Vault via IMDS ───────────────────
+  # KV_NAME and UAMI_CLIENT_ID were templated into fetch-kv-certs.sh by Bicep.
+  - /usr/local/bin/fetch-kv-certs.sh
+
+  # ── 3. Validate cert files exist before rsyslog starts ───────────────────
+  - |
+    MISSING=0
+    for f in /etc/rsyslog.d/certs/ca.pem \
+              /etc/rsyslog.d/certs/server.pem \
+              /etc/rsyslog.d/certs/server-key.pem; do
+      if [ ! -f "$f" ]; then
+        echo "WARNING: ${f} not found — rsyslog TLS will not start." >&2
+        MISSING=1
+      fi
+    done
+    # Do not hard-fail here; let rsyslog report the config error clearly.
+
+  # ── 4. Enforce cert directory permissions ────────────────────────────────
+  - chmod 600 /etc/rsyslog.d/certs/server-key.pem 2>/dev/null || true
+  - chmod 644 /etc/rsyslog.d/certs/ca.pem /etc/rsyslog.d/certs/server.pem 2>/dev/null || true
+  - chown -R root:root /etc/rsyslog.d/certs
+
+  # ── 5. Validate rsyslog config syntax, then enable and start ─────────────
+  - rsyslogd -N1
+  - systemctl enable rsyslog
+  - systemctl restart rsyslog
