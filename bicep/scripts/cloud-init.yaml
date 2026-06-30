@@ -124,18 +124,21 @@ write_files:
       fetch_secret "syslog-server-cert" "${CERT_DIR}/server.pem"
       fetch_secret "syslog-server-key"  "${CERT_DIR}/server-key.pem"
 
-      # Lock down private key; certs world-readable by root
-      chmod 600  "${CERT_DIR}/server-key.pem"
-      chmod 644  "${CERT_DIR}/ca.pem" "${CERT_DIR}/server.pem"
-      chown -R root:root "${CERT_DIR}"
+      # rsyslog drops privileges to the 'syslog' user at runtime and reads the
+      # TLS cert/key per-connection via the gtls driver. The cert directory and
+      # files must therefore be readable by the 'syslog' group — root-only perms
+      # cause 'Permission denied' / gtlsInitSession failures (rsyslog error -2040).
+      chown -R root:syslog "${CERT_DIR}"
+      chmod 0750 "${CERT_DIR}"
+      chmod 0640 "${CERT_DIR}/ca.pem" "${CERT_DIR}/server.pem" "${CERT_DIR}/server-key.pem"
 
       echo "Certificate fetch complete."
 
 runcmd:
-  # ── 1. Create cert directory ──────────────────────────────────────────────
+  # ── 1. Create cert directory (group-readable by 'syslog') ─────────────────
   - mkdir -p /etc/rsyslog.d/certs
-  - chmod 700 /etc/rsyslog.d/certs
-  - chown root:root /etc/rsyslog.d/certs
+  - chown root:syslog /etc/rsyslog.d/certs
+  - chmod 0750 /etc/rsyslog.d/certs
 
   # ── 2. Fetch TLS cert material from Key Vault via IMDS ───────────────────
   # KV_NAME and UAMI_CLIENT_ID were templated into fetch-kv-certs.sh by Bicep.
@@ -154,10 +157,10 @@ runcmd:
     done
     # Do not hard-fail here; let rsyslog report the config error clearly.
 
-  # ── 4. Enforce cert directory permissions ────────────────────────────────
-  - chmod 600 /etc/rsyslog.d/certs/server-key.pem 2>/dev/null || true
-  - chmod 644 /etc/rsyslog.d/certs/ca.pem /etc/rsyslog.d/certs/server.pem 2>/dev/null || true
-  - chown -R root:root /etc/rsyslog.d/certs
+  # ── 4. Enforce cert ownership/permissions (syslog group must read) ───────
+  - chown -R root:syslog /etc/rsyslog.d/certs 2>/dev/null || true
+  - chmod 0750 /etc/rsyslog.d/certs 2>/dev/null || true
+  - chmod 0640 /etc/rsyslog.d/certs/ca.pem /etc/rsyslog.d/certs/server.pem /etc/rsyslog.d/certs/server-key.pem 2>/dev/null || true
 
   # ── 5. Validate rsyslog config syntax, then enable and start ─────────────
   - rsyslogd -N1
